@@ -1,85 +1,96 @@
 #include <QTRSensors.h>
+#include "motors.h"
 
-int P=0;
-int I=0;
-int D=0;
-int forward=250;
+
+//variables
+int max_vel=250;
+int error=0;
+int last_time=0;
+int seconds;
+int last_error=0;
+int UMBRAL_WHITE=30;
+int time_for_task_1=(60)*1000;//60 seconds
 float kp=0.16;
 float ki=0.003;
 float kd=0.6;
-int LAST=0;
 float vel;
+
+
+//pines del motor      
 #define NUM_SENSORS 5
 #define TIMEOUT 2500
-#define EMITTER_PIN 2
-//pines del motor       
-#define pinAIN2 7
-#define pinAIN1 8
-#define pinBIN1 9
-#define pinBIN2 10
-#define pinSTBY 12
-   
-//Variables del sensor
+#define EMITTER_PIN 2 
+const int pinAIN2=7;
+const int pinAIN1=8;
+const int pinBIN1=9;
+const int pinBIN2=10;
+const int pinSTBY=12;
+
+
+//QTR DECLARATION
 QTRSensors qtr;
 unsigned int sensorValues[NUM_SENSORS];
 unsigned int position=0;
-int pinMotorA[]={pinAIN1,pinAIN2};
-int pinMotorB[]={pinBIN1,pinBIN2};
+
+
+//MOTORS DECLARATION 
+Motors two_motors(pinAIN1,pinAIN2,pinBIN1,pinBIN2,pinSTBY);
+
+//STATES DECLARATION
+enum states{
+  doing_task_1,//Doing task 1(after a certain time or all sensors detect white state will change to doing_task_2)
+  doing_task_2,//Doing task 2(once the sensor detects a really near distance state will change to finish state)
+  finish_state
+};
+states task=doing_task_1;
+
+
 
 void setup() {
-  // Initialize the sensors.
-  qtr.setTypeRC(); // or setTypeAnalog()
-  qtr.setSensorPins((const uint8_t[]){14,15,16,17,18}, 5);
+  // INITIALIZE QTR SENSORS
+  qtr.setTypeRC(); 
+  qtr.setSensorPins((const uint8_t[]){14,15,16,17,18,19,20,21}, 8);
   
-  // calibración
+  // CALIBRATION
   delay(500);
   for(int i=0;i<400;i++){
     qtr.calibrate();
   }
-  delay(3000);
-  //pines del motor
-  pinMode(pinAIN2, OUTPUT);
-  pinMode(pinAIN1, OUTPUT);
-  pinMode(pinBIN1, OUTPUT);
-  pinMode(pinBIN2, OUTPUT);
-  digitalWrite(pinSTBY,HIGH);
-
+  delay(1000);
+  two_motors.setup();
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-  qtr.readLineBlack(sensorValues);
-  position=qtr.readLineBlack(sensorValues);
-  P=((position)-(2000));
-  if(P<-2000){
-    avanzar(0,0);
-  }else if(P>2000){
-    avanzar(0,0); 
-  }
-  else{
-    D=P-LAST;
-    I=P+LAST;
-    vel=(P*kp)+(D*kd)+(I*ki);
-    if(vel>forward){vel=forward;}
-    if(vel<-forward){vel=-forward;}
-    LAST=P;
-    avanzar(forward-vel,forward+vel);
-  }
-}
-void avanzar(int speedA,int speedB){
-  if(speedA>0){
-    analogWrite(pinMotorA[1], speedA);
-    analogWrite(pinMotorA[2], 0);
-  }else{
-    analogWrite(pinMotorA[1], 0);
-    analogWrite(pinMotorA[2], speedA);
+  switch(task){
+        //TASK1//
+        case doing_task_1:{
+          
+          position=qtr.readLineBlack(sensorValues);//READ LINE
+          error=((position)-(3500));//CALCULATIN THE ERROR RESPECTING THE CENTER VALUE
+          seconds=(millis()-last_time);//GAP OF TIME
+          vel=two_motors.PID(error,seconds,last_error,ki,kp,kd,max_vel);//USING PID FOR CALCULATIN THE VARIATION OF VELOCITY OUR MOTORS NEED
+          two_motors.avanzar_after_PID(max_vel-vel,max_vel+vel);//CHANGING OUR MOTORS VELOCITY 
+          last_error=error;
+          last_time=millis();
+          //
+          bool change_state=true;
+          for(int i=0;i<8;i++){
+             if(sensorValues[i]>UMBRAL_WHITE){
+                 change_state=false;
+                 break;
+             }
+          }
+          if(millis()>time_for_task_1 || change_state){
+            task=doing_task_2;
+          }
+          break;
+        }
+
+
+        case doing_task_2:{
+          
+        }
+    
   }
   
-  if(speedB>0){
-    digitalWrite(pinMotorB[1], speedB);
-    digitalWrite(pinMotorB[2], 0);
-  }else{
-    digitalWrite(pinMotorB[1], 0);
-    digitalWrite(pinMotorB[2], speedB);
-  }
 }
